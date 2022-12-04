@@ -4,12 +4,12 @@ Name=legbop
 Type=1
 Ver=2
 ObjFiles=
-Includes="C:\Program Files (x86)\Dev-Cpp\MinGW64\x86_64-w64-mingw32\include\SDL2"
-Libs=
+Includes="C:\Program Files (x86)\Dev-Cpp\MinGW64\i686-w64-mingw32\include\SDL2"
+Libs="C:\Program Files (x86)\Dev-Cpp\MinGW64\i686-w64-mingw32\lib"
 PrivateResource=legbop_private.rc
 ResourceIncludes=
 MakeIncludes=
-Compiler=-m64 -O2 -Wno-unused-result -std=c99 -pedantic -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes -D_REENTRANT -lm_@@_
+Compiler=-m32 -O2 -Wno-unused-result -std=c99 -pedantic -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes -D_REENTRANT -lm_@@_
 CppCompiler=
 Linker=-l"mingw32"_@@_-l"SDL2main"_@@_-l"SDL2.dll"_@@_-l"SDL2_image.dll"_@@_-l"SDL2_ttf.dll"_@@_
 IsCpp=0
@@ -27,8 +27,8 @@ CommandLine=
 Folders=
 IncludeVersionInfo=0
 SupportXPThemes=0
-CompilerSet=0
-CompilerSettings=0000000000000000000000000
+CompilerSet=3
+CompilerSettings=0000000100000000000000000
 UnitCount=1
 
 [VersionInfo]

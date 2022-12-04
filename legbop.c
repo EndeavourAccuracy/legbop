@@ -1,5 +1,6 @@
-/* legbop v0.9 (November 2016)
- * Copyright (C) 2016 Norbert de Jonge <mail@norbertdejonge.nl>
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* legbop v1.0 (December 2022)
+ * Copyright (C) 2016-2022 Norbert de Jonge <nlmdejonge@gmail.com>
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -54,8 +55,8 @@
 #define EXIT_NORMAL 0
 #define EXIT_ERROR 1
 #define EDITOR_NAME "legbop"
-#define EDITOR_VERSION "v0.9 (November 2016)"
-#define COPYRIGHT "Copyright (C) 2016 Norbert de Jonge"
+#define EDITOR_VERSION "v1.0 (December 2022)"
+#define COPYRIGHT "Copyright (C) 2022 Norbert de Jonge"
 #define OFFSET_LEVEL0 0x1DCC4 /*** various ***/
 #define MAX_LEVEL_SIZE 20000
 #define LEVELS 17
@@ -66,8 +67,8 @@
 #define BACKUP ROM_DIR SLASH "rom.bak"
 #define MAX_PATHFILE 200
 #define MAX_TOWRITE 720
-#define SCREEN_WIDTH 640 + 2 + 50 /*** 692 ***/
-#define SCREEN_HEIGHT 496 + 2 + 75 /*** 573 ***/
+#define WINDOW_WIDTH 640 + 2 + 50 /*** 692 ***/
+#define WINDOW_HEIGHT 496 + 2 + 75 /*** 573 ***/
 #define MAX_IMG 200
 #define MAX_CON 30
 #define MAX_TYPE 10
@@ -127,8 +128,8 @@
 #define DD_X 64 /*** Horizontal distance between (overlapping) tiles. ***/
 #define DD_Y 160 /*** Vertical distance between (overlapping) tiles. ***/
 
-#define TILEWIDTH 63
-#define TILEHEIGHT 79
+#define TILEWIDTH 63 /*** On tiles screen. ***/
+#define TILEHEIGHT 79 /*** On tiles screen. ***/
 #define TILESX1 2 + (TILEWIDTH + 2) * 0
 #define TILESX2 2 + (TILEWIDTH + 2) * 1
 #define TILESX3 2 + (TILEWIDTH + 2) * 2
@@ -146,13 +147,17 @@
 #define TILESY5 2 + (TILEHEIGHT + 2) * 4
 #define TILESY6 2 + (TILEHEIGHT + 2) * 5
 
+/*** Playtesting. ***/
+#define OFFSET_TRAINING 0x664
+#define OFFSET_START 0x2E3
+#define OFFSET_REDORB 0x23E
+
 #ifndef O_BINARY
 #define O_BINARY 0
 #endif
 /*========== Defines ==========*/
 
 int iDebug;
-int iFd;
 unsigned char arLevel[MAX_LEVEL_SIZE + 2];
 unsigned char arLevelOut[MAX_LEVEL_SIZE + 2];
 int iLevelSize;
@@ -218,6 +223,7 @@ int iMednafen;
 char sInfo[MAX_INFO + 2];
 int iNoAnim;
 int iFlameFrame;
+int iModified;
 
 /*** EXE ***/
 int iEXEMinutesLeft;
@@ -370,7 +376,7 @@ struct sample {
 void ShowUsage (void);
 void GetPathFile (void);
 void LoadLevels (void);
-int DecompressLevel (int iOffset);
+int DecompressLevel (int iFd, int iOffset);
 void SaveLevels (void);
 void PrintTileName (int iLevel, int iRoom, int iTile, int iTileValue);
 void AddDuplicates (int iByteToWrite, int iNrDuplicates);
@@ -453,6 +459,8 @@ void TotalEvents (int iAmount);
 void GetOptionValue (char *sArgv, char *sValue);
 int IsEven (int iValue);
 void IntroSlides (void);
+void ModifyForMednafen (int iLevel);
+void ModifyBack (void);
 
 /*****************************************************************************/
 int main (int argc, char *argv[])
@@ -465,7 +473,7 @@ int main (int argc, char *argv[])
 
 	iDebug = 0;
 	iExtras = 0;
-	iLastTile = 0;
+	iLastTile = 0x00;
 	iInfo = 0;
 	iScale = 1;
 	iOnTile = 1;
@@ -477,6 +485,7 @@ int main (int argc, char *argv[])
 	iCustomTile = 0x00;
 	iMednafen = 0;
 	iNoAnim = 0;
+	iModified = 0;
 
 	if (argc > 1)
 	{
@@ -591,6 +600,7 @@ void GetPathFile (void)
 	char sExtension[100 + 2];
 	char sError[MAX_ERROR + 2];
 	char sVerify[VERIFY_SIZE + 2];
+	int iFd;
 
 	iFound = 0;
 
@@ -672,6 +682,7 @@ void GetPathFile (void)
 void LoadLevels (void)
 /*****************************************************************************/
 {
+	int iFd;
 	int iOffsetStart;
 	int iOffsetEnd;
 	int iLevel;
@@ -711,6 +722,7 @@ void LoadLevels (void)
 			default: iLevel = iLevelLoop - 1; break;
 		}
 
+		/*** This is the princess room during the ending. ***/
 		if (iLevel == 16)
 		{
 			read (iFd, sUnknown, UNKNOWN);
@@ -731,7 +743,7 @@ void LoadLevels (void)
 			printf ("[ INFO ] Level %i starts at offset 0x%02x (%i).\n",
 				iLevel, iOffsetStart, iOffsetStart);
 		}
-		iOffsetEnd = DecompressLevel (iOffsetStart);
+		iOffsetEnd = DecompressLevel (iFd, iOffsetStart);
 
 		if (iDebug == 1)
 		{
@@ -890,7 +902,7 @@ void LoadLevels (void)
 	close (iFd);
 }
 /*****************************************************************************/
-int DecompressLevel (int iOffset)
+int DecompressLevel (int iFd, int iOffset)
 /*****************************************************************************/
 {
 	int iRead;
@@ -1042,6 +1054,7 @@ int DecompressLevel (int iOffset)
 void SaveLevels (void)
 /*****************************************************************************/
 {
+	int iFd;
 	int iByte;
 	int iBit;
 	int iBytesOut;
@@ -1235,12 +1248,14 @@ void PrintTileName (int iLevel, int iRoom, int iTile, int iTileValue)
 		case 0x01: printf ("floor 1"); break;
 		case 0x02: printf ("spikes "); break;
 		case 0x03: printf ("pillar "); break;
+		case 0x05: printf ("mirrora"); break;
 		case 0x07: printf ("arch+ta"); break;
 		case 0x08: printf ("pillarb"); break;
 		case 0x09: printf ("pillart"); break;
 		case 0x0A: printf ("potionp"); break;
 		case 0x0B: printf ("loose  "); break;
 		case 0x0C: printf ("gatetop"); break;
+		case 0x0D: printf ("mirror "); break;
 		case 0x0E: printf ("rubble "); break;
 		case 0x10: printf ("exit lO"); break;
 		case 0x11: printf ("exit ri"); break;
@@ -1249,6 +1264,7 @@ void PrintTileName (int iLevel, int iRoom, int iTile, int iTileValue)
 		case 0x14: printf ("wall 1 "); break;
 		case 0x15: printf ("skeleto"); break;
 		case 0x16: printf ("sword  "); break;
+		case 0x17: printf ("mirrorl"); break;
 		case 0x18: printf ("balcony"); break;
 		case 0x19: printf ("archbot"); break;
 		case 0x1A: printf ("archtop"); break;
@@ -1492,7 +1508,7 @@ int CompressLevel (int iNrBytes)
 		{
 			iNrRepeated = 0;
 			while (arLevel[iByte] == cProcessingByte)
-			{	
+			{
 				iByte++;
 				iNrRepeated++;
 			}
@@ -1552,6 +1568,7 @@ void Quit (void)
 /*****************************************************************************/
 {
 	if (iChanged != 0) { InitPopUpSave(); }
+	if (iModified == 1) { ModifyBack(); }
 	TTF_CloseFont (font1);
 	TTF_CloseFont (font2);
 	TTF_CloseFont (font3);
@@ -1590,7 +1607,7 @@ void InitScreen (void)
 
 	window = SDL_CreateWindow (EDITOR_NAME " " EDITOR_VERSION,
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		(SCREEN_WIDTH) * iScale, (SCREEN_HEIGHT) * iScale, iFullscreen);
+		(WINDOW_WIDTH) * iScale, (WINDOW_HEIGHT) * iScale, iFullscreen);
 	if (window == NULL)
 	{
 		printf ("[FAILED] Unable to create a window: %s!\n", SDL_GetError());
@@ -1606,12 +1623,13 @@ void InitScreen (void)
 	SDL_SetHint (SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
 	if (iFullscreen != 0)
 	{
-		SDL_RenderSetLogicalSize (ascreen, (SCREEN_WIDTH) * iScale,
-			(SCREEN_HEIGHT) * iScale);
+		SDL_RenderSetLogicalSize (ascreen, (WINDOW_WIDTH) * iScale,
+			(WINDOW_HEIGHT) * iScale);
 	}
 
 	if (TTF_Init() == -1)
 	{
+		printf ("[FAILED] Could not initialize TTF!\n");
 		exit (EXIT_ERROR);
 	}
 
@@ -1643,7 +1661,12 @@ void InitScreen (void)
 	snprintf (sImage, MAX_IMG, "png%svarious%slegbop_icon.png",
 		SLASH, SLASH);
 	imgicon = IMG_Load (sImage);
-	SDL_SetWindowIcon (window, imgicon);
+	if (imgicon == NULL)
+	{
+		printf ("[ WARN ] Could not load \"%s\": %s!\n", sImage, strerror (errno));
+	} else {
+		SDL_SetWindowIcon (window, imgicon);
+	}
 
 	/*** Open the first available controller. ***/
 	iController = 0;
@@ -1708,6 +1731,7 @@ void InitScreen (void)
 	PreLoadSet ('d', 0x01); PreLoadSet ('p', 0x01);
 	PreLoadSet ('d', 0x02); PreLoadSet ('p', 0x02);
 	PreLoadSet ('d', 0x03); PreLoadSet ('p', 0x03);
+	PreLoadSet ('d', 0x05); PreLoadSet ('p', 0x05);
 	PreLoadSet ('d', 0x06); PreLoadSet ('p', 0x06);
 	PreLoadSet ('d', 0x07); PreLoadSet ('p', 0x07);
 	PreLoadSet ('d', 0x08); PreLoadSet ('p', 0x08);
@@ -1715,6 +1739,7 @@ void InitScreen (void)
 	PreLoadSet ('d', 0x0A); PreLoadSet ('p', 0x0A);
 	PreLoadSet ('d', 0x0B); PreLoadSet ('p', 0x0B);
 	PreLoadSet ('d', 0x0C); PreLoadSet ('p', 0x0C);
+	PreLoadSet ('d', 0x0D); PreLoadSet ('p', 0x0D);
 	PreLoadSet ('d', 0x0E); PreLoadSet ('p', 0x0E);
 	PreLoadSet ('d', 0x0F); PreLoadSet ('p', 0x0F);
 	PreLoadSet ('d', 0x10); PreLoadSet ('p', 0x10);
@@ -1724,6 +1749,7 @@ void InitScreen (void)
 	PreLoadSet ('d', 0x14); PreLoadSet ('p', 0x14);
 	PreLoadSet ('d', 0x15); PreLoadSet ('p', 0x15);
 	PreLoadSet ('d', 0x16); PreLoadSet ('p', 0x16);
+	PreLoadSet ('d', 0x17); PreLoadSet ('p', 0x17);
 	PreLoadSet ('d', 0x18); PreLoadSet ('p', 0x18);
 	PreLoadSet ('d', 0x19); PreLoadSet ('p', 0x19);
 	PreLoadSet ('d', 0x1A); PreLoadSet ('p', 0x1A);
@@ -2029,7 +2055,7 @@ void InitScreen (void)
 									Quit(); break;
 								case 2:
 									arBrokenRoomLinks[iCurLevel] = BrokenRoomLinks (0);
-									/*** no break ***/
+									iScreen = 1; break;
 								case 3:
 									iScreen = 1; break;
 							}
@@ -2263,7 +2289,7 @@ void InitScreen (void)
 					}
 					ShowScreen();
 					break;
-				case SDL_KEYDOWN: /*** http://wiki.libsdl.org/SDL_Keycode ***/
+				case SDL_KEYDOWN: /*** https://wiki.libsdl.org/SDL2/SDL_Keycode ***/
 					switch (event.key.keysym.sym)
 					{
 						case SDLK_F1:
@@ -2344,7 +2370,7 @@ void InitScreen (void)
 									Quit(); break;
 								case 2:
 									arBrokenRoomLinks[iCurLevel] = BrokenRoomLinks (0);
-									/*** no break ***/
+									iScreen = 1; break;
 								case 3:
 									iScreen = 1; break;
 							}
@@ -3010,7 +3036,7 @@ void InitScreen (void)
 									Quit(); break;
 								case 2:
 									arBrokenRoomLinks[iCurLevel] = BrokenRoomLinks (0);
-									/*** no break ***/
+									iScreen = 1; break;
 								case 3:
 									iScreen = 1; break;
 							}
@@ -3814,7 +3840,7 @@ void PlaySound (char *sFile)
 
 	if (sounds[iIndex].data)
 	{
-		free(sounds[iIndex].data);
+		free (sounds[iIndex].data);
 	}
 	SDL_LockAudio();
 	sounds[iIndex].data = cvt.buf;
@@ -4032,7 +4058,7 @@ void ShowScreen (void)
 		}
 		ShowImage (imgfadeds, iHor[0], iVer2, "imgfadeds");
 
-		/*** One tile: top row, room left down. ***/
+		/*** One tile: 'top' row, room left down. ***/
 		if (arRoomLinks[iCurLevel][iCurRoom][1] != 0) /*** left ***/
 		{
 			if (arRoomLinks[iCurLevel]
@@ -4863,7 +4889,7 @@ void Help (void)
 				case SDL_MOUSEMOTION:
 					iXPos = event.motion.x;
 					iYPos = event.motion.y;
-					if (InArea (94, 411, 94 + 504, 411 + 23) == 1)
+					if (InArea (87, 413, 87 + 517, 413 + 20) == 1)
 					{
 						SDL_SetCursor (curHand);
 					} else {
@@ -4886,8 +4912,8 @@ void Help (void)
 					{
 						if (InArea (590, 523, 674, 554) == 1)
 							{ iHelp = 0; }
-						if (InArea (94, 411, 94 + 504, 411 + 23) == 1)
-							{ OpenURL ("http://www.norbertdejonge.nl/legbop/"); }
+						if (InArea (87, 413, 87 + 517, 413 + 20) == 1)
+							{ OpenURL ("https://github.com/EndeavourAccuracy/legbop"); }
 					}
 					ShowHelp(); break;
 				case SDL_WINDOWEVENT:
@@ -5778,6 +5804,8 @@ void RunLevel (int iLevel)
 		printf ("[  OK  ] Starting the game in level %i.\n", iLevel);
 	}
 
+	ModifyForMednafen (iLevel);
+
 	princethread = SDL_CreateThread (StartGame, "StartGame", NULL);
 	if (princethread == NULL)
 	{
@@ -5812,6 +5840,7 @@ int StartGame (void *unused)
 	{
 		printf ("[ WARN ] Could not execute mednafen!\n");
 	}
+	if (iModified == 1) { ModifyBack(); }
 
 	return (EXIT_NORMAL);
 }
@@ -5877,6 +5906,10 @@ void UseTile (int iTile, int iLocation, int iRoom)
 		/*** Row 2. ***/
 		case 11: SetLocation (iRoom, iLocation, 0x02); break;
 		case 12: SetLocation (iRoom, iLocation, 0x12); break;
+		/***/
+		case 17: SetLocation (iRoom, iLocation, 0x17); break;
+		case 18: SetLocation (iRoom, iLocation, 0x0D); break;
+		case 19: SetLocation (iRoom, iLocation, 0x05); break;
 		/***/
 
 		/*** Row 3. ***/
@@ -5998,10 +6031,12 @@ void Zoom (int iToggleFull)
 	}
 
 	SDL_SetWindowFullscreen (window, iFullscreen);
-	SDL_SetWindowSize (window, (SCREEN_WIDTH) * iScale,
-		(SCREEN_HEIGHT) * iScale);
-	SDL_RenderSetLogicalSize (ascreen, (SCREEN_WIDTH) * iScale,
-		(SCREEN_HEIGHT) * iScale);
+	SDL_SetWindowSize (window, (WINDOW_WIDTH) * iScale,
+		(WINDOW_HEIGHT) * iScale);
+	SDL_RenderSetLogicalSize (ascreen, (WINDOW_WIDTH) * iScale,
+		(WINDOW_HEIGHT) * iScale);
+	SDL_SetWindowPosition (window, SDL_WINDOWPOS_CENTERED,
+		SDL_WINDOWPOS_CENTERED);
 	TTF_CloseFont (font1);
 	TTF_CloseFont (font2);
 	TTF_CloseFont (font3);
@@ -6743,13 +6778,13 @@ void ChangePos (void)
 					{
 						/*** Changing the custom tile. ***/
 						if (InArea (402, 543, 402 + 13, 543 + 20) == 1)
-							{ ChangeCustom (-10); }
+							{ ChangeCustom (-16); }
 						if (InArea (417, 543, 417 + 13, 543 + 20) == 1)
 							{ ChangeCustom (-1); }
 						if (InArea (487, 543, 487 + 13, 543 + 20) == 1)
 							{ ChangeCustom (1); }
 						if (InArea (502, 543, 502 + 13, 543 + 20) == 1)
-							{ ChangeCustom (10); }
+							{ ChangeCustom (16); }
 
 						/*** Changing the event number. ***/
 						if (InArea (532, 543, 532 + 13, 543 + 20) == 1)
@@ -7151,11 +7186,11 @@ void DisplayText (int iStartX, int iStartY, int iFontSize,
 				offset.x = iStartX + 20;
 			} else {
 				offset.x = iStartX;
-		}
-		offset.y = iStartY + (iTemp * (iFontSize + 4));
-		offset.w = message->w; offset.h = message->h;
-		CustomRenderCopy (messaget, NULL, &offset, "message");
-		SDL_DestroyTexture (messaget); SDL_FreeSurface (message);
+			}
+			offset.y = iStartY + (iTemp * (iFontSize + 4));
+			offset.w = message->w; offset.h = message->h;
+			CustomRenderCopy (messaget, NULL, &offset, "message");
+			SDL_DestroyTexture (messaget); SDL_FreeSurface (message);
 		}
 	}
 }
@@ -7399,6 +7434,10 @@ void ShowChange (void)
 		/*** Row 2. ***/
 		case 0x02: iX = TILESX1; iY = TILESY2; break;
 		case 0x12: iX = TILESX2; iY = TILESY2; break;
+		/***/
+		case 0x17: iX = TILESX7; iY = TILESY2; break;
+		case 0x0D: iX = TILESX8; iY = TILESY2; break;
+		case 0x05: iX = TILESX9; iY = TILESY2; break;
 		/***/
 
 		/*** Row 3. ***/
@@ -7735,7 +7774,11 @@ void CenterNumber (int iNumber, int iX, int iY,
 	} else {
 		snprintf (sText, MAX_TEXT, "%02X", iNumber);
 	}
-	message = TTF_RenderText_Blended_Wrapped (font3, sText, fore, 0);
+	/* The 100000 is a workaround for 0 being broken. SDL devs have fixed that
+	 * see e.g. https://hg.libsdl.org/SDL_ttf/rev/72b8861dbc01 but
+	 * Ubuntu et al. still ship an sdl-ttf that is >10 years(!) old.
+	 */
+	message = TTF_RenderText_Blended_Wrapped (font3, sText, fore, 100000);
 	messaget = SDL_CreateTextureFromSurface (ascreen, message);
 	if (iHex == 0)
 	{
@@ -7761,7 +7804,8 @@ void CenterNumber (int iNumber, int iX, int iY,
 int Unused (int iTile)
 /*****************************************************************************/
 {
-	if ((iTile >= 13) && (iTile <= 20)) { return (1); }
+	if ((iTile >= 13) && (iTile <= 16)) { return (1); }
+	if (iTile == 20) { return (1); }
 	if (iTile == 29) { return (1); }
 	if ((iTile == 37) || (iTile == 38)) { return (1); }
 	if (iTile == 42) { return (1); }
@@ -7950,12 +7994,23 @@ void EXESave (void)
 	write (iFdEXE, sToWrite, 1);
 
 	/*** Hair. ***/
-	lseek (iFdEXE, 0xB1A2, SEEK_SET);
+	lseek (iFdEXE, 0xB1A2, SEEK_SET); /*** 1,2,3,4,8,9,12a,12b,v,t1,t2 ***/
 	iEXEHair = iEXEHairB << 10;
 	iEXEHair += iEXEHairG << 5;
 	iEXEHair += iEXEHairR;
 	sToWrite[0] = (iEXEHair >> 0) & 0xFF;
 	sToWrite[1] = (iEXEHair >> 8) & 0xFF;
+	write (iFdEXE, sToWrite, 2);
+	/***/
+	lseek (iFdEXE, 0xB1E2, SEEK_SET); /*** 6,7 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB222, SEEK_SET); /*** 5 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB262, SEEK_SET); /*** 10 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB2A2, SEEK_SET); /*** 11 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB2E2, SEEK_SET); /*** 12c ***/
 	write (iFdEXE, sToWrite, 2);
 
 	/*** Skin. ***/
@@ -7966,6 +8021,17 @@ void EXESave (void)
 	sToWrite[0] = (iEXESkin >> 0) & 0xFF;
 	sToWrite[1] = (iEXESkin >> 8) & 0xFF;
 	write (iFdEXE, sToWrite, 2);
+	/***/
+	lseek (iFdEXE, 0xB1E4, SEEK_SET); /*** 6,7 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB224, SEEK_SET); /*** 5 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB264, SEEK_SET); /*** 10 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB2A4, SEEK_SET); /*** 11 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB2E4, SEEK_SET); /*** 12c ***/
+	write (iFdEXE, sToWrite, 2);
 
 	/*** Suit. ***/
 	lseek (iFdEXE, 0xB1A6, SEEK_SET);
@@ -7974,6 +8040,17 @@ void EXESave (void)
 	iEXESuit += iEXESuitR;
 	sToWrite[0] = (iEXESuit >> 0) & 0xFF;
 	sToWrite[1] = (iEXESuit >> 8) & 0xFF;
+	write (iFdEXE, sToWrite, 2);
+	/***/
+	lseek (iFdEXE, 0xB1E6, SEEK_SET); /*** 6,7 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB226, SEEK_SET); /*** 5 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB266, SEEK_SET); /*** 10 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB2A6, SEEK_SET); /*** 11 ***/
+	write (iFdEXE, sToWrite, 2);
+	lseek (iFdEXE, 0xB2E6, SEEK_SET); /*** 12c ***/
 	write (iFdEXE, sToWrite, 2);
 
 	/*** Intro slides. ***/
@@ -8264,5 +8341,83 @@ void IntroSlides (void)
 	}
 
 	iBytesLeft = SLIDES_BYTES - iSize;
+}
+/*****************************************************************************/
+void ModifyForMednafen (int iLevel)
+/*****************************************************************************/
+{
+	int iFd;
+	char sToWrite[MAX_TOWRITE + 2];
+	int iToLevel;
+
+	/*** Open file. ***/
+	iFd = open (sPathFile, O_RDWR|O_BINARY, 0600);
+	if (iFd == -1)
+	{
+		printf ("[FAILED] Error opening %s: %s!\n",
+			sPathFile, strerror (errno));
+		exit (EXIT_ERROR);
+	}
+
+	/*** Make training the active in-editor level. ***/
+	switch (iLevel)
+	{
+		case 15: iToLevel = 15; break;
+		case 16: iToLevel = 16; break;
+		case 17: iToLevel = 17; break; /*** Does not work. ***/
+		default: iToLevel = iLevel - 1; break;
+	}
+	lseek (iFd, OFFSET_TRAINING, SEEK_SET);
+	snprintf (sToWrite, MAX_TOWRITE, "%c", iToLevel);
+	write (iFd, sToWrite, 1);
+
+	/*** Start training. ***/
+	lseek (iFd, OFFSET_START, SEEK_SET);
+	snprintf (sToWrite, MAX_TOWRITE, "%c%c%c", 0xC3, 0x63, 0x06);
+	write (iFd, sToWrite, 3);
+
+	/*** Skip Red Orb screen. ***/
+	lseek (iFd, OFFSET_REDORB, SEEK_SET);
+	snprintf (sToWrite, MAX_TOWRITE, "%c%c", 0x18, 0x19);
+	write (iFd, sToWrite, 2);
+
+	close (iFd);
+
+	iModified = 1;
+}
+/*****************************************************************************/
+void ModifyBack (void)
+/*****************************************************************************/
+{
+	int iFd;
+	char sToWrite[MAX_TOWRITE + 2];
+
+	/*** Open file. ***/
+	iFd = open (sPathFile, O_RDWR|O_BINARY, 0600);
+	if (iFd == -1)
+	{
+		printf ("[FAILED] Error opening %s: %s!\n",
+			sPathFile, strerror (errno));
+		exit (EXIT_ERROR);
+	}
+
+	/*** [Undo] Make training the active in-editor level. ***/
+	lseek (iFd, OFFSET_TRAINING, SEEK_SET);
+	snprintf (sToWrite, MAX_TOWRITE, "%c", 0x10);
+	write (iFd, sToWrite, 1);
+
+	/*** [Undo] Start training. ***/
+	lseek (iFd, OFFSET_START, SEEK_SET);
+	snprintf (sToWrite, MAX_TOWRITE, "%c%c%c", 0xCD, 0x5F, 0x20);
+	write (iFd, sToWrite, 3);
+
+	/*** [Undo] Skip Red Orb screen. ***/
+	lseek (iFd, OFFSET_REDORB, SEEK_SET);
+	snprintf (sToWrite, MAX_TOWRITE, "%c%c", 0x38, 0xF7);
+	write (iFd, sToWrite, 2);
+
+	close (iFd);
+
+	iModified = 0;
 }
 /*****************************************************************************/

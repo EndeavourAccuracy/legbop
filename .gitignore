@@ -1,0 +1,11 @@
+# Executables.
+/legbop
+/legbop.exe
+
+# Created by IDE's.
+/legbop.dev
+/legbop.ico
+/legbop.layout
+/legbop.o
+/*private*
+/Makefile.win

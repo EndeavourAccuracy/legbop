@@ -1,3 +1,9 @@
+v1.0 (December 4, 2022) - Norbert de Jonge
+--------------------
++ Easier playtesting, without passwords.
++ Added the three mirror(-related) tiles.
+* Minor improvements/fixes, including more thorough hair/skin/suit changes.
+
 v0.9 (November 7, 2016) - Norbert de Jonge
 --------------------
 + Initial release.
